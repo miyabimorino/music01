@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>8BIT 3CH MUSIC ENGINE</title>
+<style>
+body{
+  background:#000;
+  color:#0f0;
+  font-family: monospace;
+  padding:20px;
+}
+
+h2{ color:#0ff; }
+
+#screen{
+  border:4px solid #0f0;
+  padding:20px;
+  background:#111;
+}
+
+textarea{
+  width:100%;
+  height:60px;
+  background:#000;
+  color:#0f0;
+  border:2px solid #0f0;
+  font-family: monospace;
+  margin-bottom:10px;
+}
+
+button,input{
+  background:#000;
+  color:#0f0;
+  border:2px solid #0f0;
+  font-family: monospace;
+  padding:5px 8px;
+  margin:5px;
+}
+
+button:hover{
+  background:#0f0;
+  color:#000;
+}
+
+.label{
+  color:#ff0;
+}
+</style>
+</head>
+<body>
+
+<h2>◆ 8BIT 3CH MUSIC ENGINE ◆</h2>
+
+<div id="screen">
+
+<div class="label">BPM</div>
+<input type="number" id="bpm" value="140">
+
+<div class="label">CH1 (MELODY)</div>
+<textarea id="ch1">C5 E5 G5 C6</textarea>
+
+<div class="label">CH2 (SUB)</div>
+<textarea id="ch2">G4 - G4 -</textarea>
+
+<div class="label">CH3 (BASS)</div>
+<textarea id="ch3">C4 - C4 -</textarea>
+
+<button onclick="play()">▶ PLAY</button>
+<button onclick="stop()">■ STOP</button>
+
+</div>
+
+<script>
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let loopTimer=null;
+
+const noteNames=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+// ノート→周波数変換
+function noteToFreq(note){
+  if(note==="-" || !note) return null;
+
+  const match = note.match(/^([A-G]#?)(\d)$/);
+  if(!match) return null;
+
+  const name=match[1];
+  const octave=parseInt(match[2]);
+
+  const noteIndex = noteNames.indexOf(name);
+  const midi = (octave+1)*12 + noteIndex;
+  return 440*Math.pow(2,(midi-69)/12);
+}
+
+function playChannel(pattern,type,startTime,beat){
+
+  pattern.forEach((note,i)=>{
+    const freq=noteToFreq(note);
+    if(!freq) return;
+
+    const osc=audioCtx.createOscillator();
+    const gain=audioCtx.createGain();
+
+    osc.type=type;
+    osc.frequency.value=freq;
+
+    const t=startTime + i*beat;
+
+    gain.gain.setValueAtTime(0.2,t);
+    gain.gain.exponentialRampToValueAtTime(0.001,t+beat*0.9);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start(t);
+    osc.stop(t+beat);
+  });
+}
+
+function play(){
+
+  stop();
+
+  const bpm=parseInt(document.getElementById("bpm").value);
+  const beat=60/bpm;
+
+  const ch1=document.getElementById("ch1").value.trim().split(" ");
+  const ch2=document.getElementById("ch2").value.trim().split(" ");
+  const ch3=document.getElementById("ch3").value.trim().split(" ");
+
+  const maxLen=Math.max(ch1.length,ch2.length,ch3.length);
+
+  const startTime=audioCtx.currentTime;
+
+  playChannel(ch1,"square",startTime,beat);
+  playChannel(ch2,"square",startTime,beat);
+  playChannel(ch3,"triangle",startTime,beat);
+
+  const loopLength=maxLen*beat*1000;
+
+  loopTimer=setTimeout(play,loopLength);
+}
+
+function stop(){
+  if(loopTimer){
+    clearTimeout(loopTimer);
+    loopTimer=null;
+  }
+}
+</script>
+
+</body>
+</html>
