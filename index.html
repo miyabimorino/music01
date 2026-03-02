@@ -1,152 +1,203 @@
+
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>8BIT 3CH MUSIC ENGINE</title>
+<title>Piano Roll Sequencer</title>
 <style>
-body{
-  background:#000;
-  color:#0f0;
-  font-family: monospace;
-  padding:20px;
+body { background:#111; color:#0f0; font-family:monospace; }
+.controls { margin-bottom:10px; }
+.grid { display:inline-block; margin-right:20px; }
+.row { display:flex; }
+.cell {
+  width:16px;
+  height:12px;
+  border:1px solid #555;
+  cursor:pointer;
 }
-
-h2{ color:#0ff; }
-
-#screen{
-  border:4px solid #0f0;
-  padding:20px;
-  background:#111;
-}
-
-textarea{
-  width:100%;
-  height:60px;
-  background:#000;
-  color:#0f0;
-  border:2px solid #0f0;
-  font-family: monospace;
-  margin-bottom:10px;
-}
-
-button,input{
-  background:#000;
-  color:#0f0;
-  border:2px solid #0f0;
-  font-family: monospace;
-  padding:5px 8px;
-  margin:5px;
-}
-
-button:hover{
-  background:#0f0;
-  color:#000;
-}
-
-.label{
-  color:#ff0;
-}
+.cell.active { background:#0f0; }
+.cell.noise-active { background:#0f0; }
+.label { font-size:10px; width:40px; text-align:right; padding-right:4px; }
 </style>
 </head>
 <body>
 
-<h2>◆ 8BIT 3CH MUSIC ENGINE ◆</h2>
+<h3>3ch Piano Roll Sequencer</h3>
 
-<div id="screen">
-
-<div class="label">BPM</div>
-<input type="number" id="bpm" value="140">
-
-<div class="label">CH1 (MELODY)</div>
-<textarea id="ch1">C5 E5 G5 C6</textarea>
-
-<div class="label">CH2 (SUB)</div>
-<textarea id="ch2">G4 - G4 -</textarea>
-
-<div class="label">CH3 (BASS)</div>
-<textarea id="ch3">C4 - C4 -</textarea>
-
-<button onclick="play()">▶ PLAY</button>
-<button onclick="stop()">■ STOP</button>
-
+<div class="controls">
+BPM: <input type="number" id="bpm" value="120" min="40" max="300">
+<button onclick="togglePlay()">Play</button>
+<button onclick="stop()">Stop</button>
 </div>
 
+<div id="sequencer"></div>
+
 <script>
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let loopTimer=null;
+const steps = 16;
+const octaves = 3;
+const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const startOctave = 3;
+const totalNotes = octaves * 12;
 
-const noteNames=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let isPlaying = false;
+let currentStep = 0;
+let intervalId;
 
-// ノート→周波数変換
-function noteToFreq(note){
-  if(note==="-" || !note) return null;
-
-  const match = note.match(/^([A-G]#?)(\d)$/);
-  if(!match) return null;
-
-  const name=match[1];
-  const octave=parseInt(match[2]);
-
-  const noteIndex = noteNames.indexOf(name);
-  const midi = (octave+1)*12 + noteIndex;
-  return 440*Math.pow(2,(midi-69)/12);
+function noteFreq(noteIndex){
+    let octave = startOctave + Math.floor(noteIndex/12);
+    let note = noteIndex % 12;
+    let A4 = 440;
+    let semitone = (octave-4)*12 + note - 9;
+    return A4 * Math.pow(2, semitone/12);
 }
 
-function playChannel(pattern,type,startTime,beat){
+let data = [
+    Array.from({length:steps}, ()=>null),
+    Array.from({length:steps}, ()=>null),
+    Array.from({length:steps}, ()=>false)
+];
 
-  pattern.forEach((note,i)=>{
-    const freq=noteToFreq(note);
-    if(!freq) return;
+function buildGrid(){
+    const container = document.getElementById("sequencer");
+    container.innerHTML = "";
 
-    const osc=audioCtx.createOscillator();
-    const gain=audioCtx.createGain();
+    for(let ch=0; ch<3; ch++){
+        const grid = document.createElement("div");
+        grid.className = "grid";
 
-    osc.type=type;
-    osc.frequency.value=freq;
+        if(ch<2){
+            for(let n=totalNotes-1; n>=0; n--){
+                const row = document.createElement("div");
+                row.className = "row";
 
-    const t=startTime + i*beat;
+                if(n%12===0){
+                    const label = document.createElement("div");
+                    label.className = "label";
+                    label.textContent = notes[n%12] + (startOctave + Math.floor(n/12));
+                    row.appendChild(label);
+                } else {
+                    const label = document.createElement("div");
+                    label.className = "label";
+                    row.appendChild(label);
+                }
 
-    gain.gain.setValueAtTime(0.2,t);
-    gain.gain.exponentialRampToValueAtTime(0.001,t+beat*0.9);
+                for(let s=0; s<steps; s++){
+                    const cell = document.createElement("div");
+                    cell.className = "cell";
+                    cell.onclick = ()=>{
+                        data[ch][s] = n;
+                        refresh();
+                    };
+                    cell.dataset.ch = ch;
+                    cell.dataset.step = s;
+                    cell.dataset.note = n;
+                    row.appendChild(cell);
+                }
 
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+                grid.appendChild(row);
+            }
+        } else {
+            const row = document.createElement("div");
+            row.className = "row";
+            const label = document.createElement("div");
+            label.className = "label";
+            label.textContent = "NOISE";
+            row.appendChild(label);
+            for(let s=0; s<steps; s++){
+                const cell = document.createElement("div");
+                cell.className = "cell";
+                cell.onclick = ()=>{
+                    data[ch][s] = !data[ch][s];
+                    refresh();
+                };
+                cell.dataset.ch = ch;
+                cell.dataset.step = s;
+                row.appendChild(cell);
+            }
+            grid.appendChild(row);
+        }
 
-    osc.start(t);
-    osc.stop(t+beat);
-  });
+        container.appendChild(grid);
+    }
 }
 
-function play(){
+function refresh(){
+    document.querySelectorAll(".cell").forEach(c=>{
+        c.classList.remove("active");
+        c.classList.remove("noise-active");
+    });
 
-  stop();
+    for(let ch=0; ch<3; ch++){
+        for(let s=0; s<steps; s++){
+            if(ch<2 && data[ch][s]!==null){
+                let selector = `.cell[data-ch='${ch}'][data-step='${s}'][data-note='${data[ch][s]}']`;
+                let cell = document.querySelector(selector);
+                if(cell) cell.classList.add("active");
+            }
+            if(ch===2 && data[ch][s]){
+                let selector = `.cell[data-ch='2'][data-step='${s}']`;
+                let cell = document.querySelector(selector);
+                if(cell) cell.classList.add("noise-active");
+            }
+        }
+    }
+}
 
-  const bpm=parseInt(document.getElementById("bpm").value);
-  const beat=60/bpm;
+function playStep(){
+    let bpm = parseInt(document.getElementById("bpm").value);
+    let interval = (60/bpm)/4;
 
-  const ch1=document.getElementById("ch1").value.trim().split(" ");
-  const ch2=document.getElementById("ch2").value.trim().split(" ");
-  const ch3=document.getElementById("ch3").value.trim().split(" ");
+    for(let ch=0; ch<2; ch++){
+        let noteIndex = data[ch][currentStep];
+        if(noteIndex!==null){
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.type="square";
+            osc.frequency.value = noteFreq(noteIndex);
+            gain.gain.value = 0.1;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + interval);
+        }
+    }
 
-  const maxLen=Math.max(ch1.length,ch2.length,ch3.length);
+    if(data[2][currentStep]){
+        let bufferSize = audioCtx.sampleRate * interval;
+        let buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        let output = buffer.getChannelData(0);
+        for(let i=0;i<bufferSize;i++){
+            output[i]=Math.random()*2-1;
+        }
+        let noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        let gain = audioCtx.createGain();
+        gain.gain.value = 0.1;
+        noise.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start();
+    }
 
-  const startTime=audioCtx.currentTime;
+    currentStep = (currentStep+1)%steps;
+}
 
-  playChannel(ch1,"square",startTime,beat);
-  playChannel(ch2,"square",startTime,beat);
-  playChannel(ch3,"triangle",startTime,beat);
-
-  const loopLength=maxLen*beat*1000;
-
-  loopTimer=setTimeout(play,loopLength);
+function togglePlay(){
+    if(isPlaying){ stop(); return; }
+    isPlaying=true;
+    let bpm = parseInt(document.getElementById("bpm").value);
+    let interval = (60/bpm)/4*1000;
+    intervalId = setInterval(playStep, interval);
 }
 
 function stop(){
-  if(loopTimer){
-    clearTimeout(loopTimer);
-    loopTimer=null;
-  }
+    isPlaying=false;
+    clearInterval(intervalId);
+    currentStep=0;
 }
+
+buildGrid();
+refresh();
 </script>
 
 </body>
