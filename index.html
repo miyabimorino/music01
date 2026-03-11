@@ -1,405 +1,714 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<title>8bit Game BGM Sequencer</title>
-<style>
-body{background:#0b0b0b;color:#00ff88;font-family:monospace;margin:20px}
-h2{margin-top:0;color:#00ffaa}
+    <meta charset="UTF-8">
+    <title>Complete 8bit Game BGM Editor</title>
+    <style>
+        body {
+            background: #0b0b0b;
+            color: #00ff88;
+            font-family: monospace;
+            margin: 20px
+        }
 
-.controls button{
-background:#111;color:#00ff88;border:1px solid #00aa66;
-padding:6px 10px;margin-right:6px;cursor:pointer
-}
-.controls button:hover{background:#003322}
-.controls{margin-bottom:12px}
+        h2 {
+            margin: 0 0 10px 0;
+            color: #00ffaa
+        }
 
-#sequencer{display:flex;gap:40px}
-.channel{display:flex;flex-direction:column}
-.channel-title{text-align:center;color:#00ffaa;margin-bottom:4px}
+        .controls {
+            margin-bottom: 15px
+        }
 
-.step-header{display:flex;margin-left:50px}
-.step-num{width:18px;text-align:center;font-size:10px;color:#00aa66}
+        button,
+        select,
+        input {
+            background: #111;
+            color: #00ff88;
+            border: 1px solid #00aa66;
+            padding: 6px 8px;
+            margin-right: 6px;
+            font-family: monospace
+        }
 
-.row{display:flex}
+        button:hover {
+            background: #003322
+        }
 
-.label{
-width:50px;font-size:9px;text-align:right;
-padding-right:6px;color:#007744
-}
+        #sequencer {
+            display: flex;
+            gap: 35px
+        }
 
-.cell{
-width:18px;height:10px;border:1px solid #1a1a1a;cursor:pointer
-}
+        .channel {
+            display: flex;
+            flex-direction: column
+        }
 
-.cell:hover{background:#002b22}
+        .channel-title {
+            text-align: center;
+            color: #00ffaa;
+            margin-bottom: 4px
+        }
 
-/* active colors */
-.white-note.active{background:#00ff88}
-.black-note.active{background:#009944}
-.noise-note.active{background:#00ffaa}
+        .step-header {
+            display: flex;
+            margin-left: 55px
+        }
 
-/* base backgrounds */
-.black-bg{background:#111}
+        .step-num {
+            width: 16px;
+            text-align: center;
+            font-size: 10px;
+            color: #00aa66
+        }
 
-.cell.playing{outline:1px solid #ffffff}
+        .row {
+            display: flex
+        }
 
-.octave-line{border-top:1px solid #00aa55}
-.step-sep{border-right:2px solid #003322}
-</style>
+        .label {
+            width: 55px;
+            font-size: 9px;
+            text-align: right;
+            padding-right: 6px;
+            color: #007744
+        }
+
+        .cell {
+            width: 16px;
+            height: 10px;
+            border: 1px solid #1a1a1a;
+            cursor: pointer
+        }
+
+        .cell:hover {
+            background: #003322
+        }
+
+        .white.active {
+            background: #00ff88
+        }
+
+        .black.active {
+            background: #009944
+        }
+
+        .tri.active {
+            background: #88ffaa
+        }
+
+        .noise.active {
+            background: #00ffff
+        }
+
+        .blackbg {
+            background: #111
+        }
+
+        .octave-line {
+            border-top: 1px solid #00aa55
+        }
+
+        .step-sep {
+            border-right: 2px solid #003322
+        }
+
+        .playhead {
+            outline: 1px solid #ffffff
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
 </head>
 
 <body>
 
-<h2>8bit Game BGM Sequencer</h2>
-
-<div class="controls">
-BPM <input type="number" id="bpm" value="120" min="40" max="300">
-<button onclick="togglePlay()">Play</button>
-<button onclick="stop()">Stop</button>
-<button onclick="toggleLoop()" id="loopBtn">Loop OFF</button>
-<button onclick="resetSong()">Reset</button>
-<button onclick="saveJSON()">Save JSON</button>
-<input type="file" id="loadFile" style="display:none">
-<button onclick="document.getElementById('loadFile').click()">Load JSON</button>
-</div>
+    <h2>Complete 8bit Game BGM Editor</h2>
 
-<div id="sequencer"></div>
+    <div class="controls">
 
-<script>
+        BPM
+        <input type="number" id="bpm" value="120" min="40" max="300">
 
-const steps=16
-const octaves=3
-const notes=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
-const startOct=3
-const totalNotes=octaves*12
+        Steps
+        <select id="stepCount">
+            <option>16</option>
+            <option>32</option>
+            <option>64</option>
+        </select>
 
-let audioCtx=new(window.AudioContext||window.webkitAudioContext)()
+        <button onclick="rebuild()">Apply</button>
 
-let data=[
- Array(steps).fill(null),
- Array(steps).fill(null),
- Array(steps).fill(false)
-]
+        <button onclick="togglePlay()">Play</button>
+        <button onclick="stop()">Stop</button>
 
-let currentStep=0
-let loop=false
-let playing=false
-let timer
+        <button onclick="toggleLoop()" id="loopBtn">Loop OFF</button>
 
-function freq(i){
- let octave=startOct+Math.floor(i/12)
- let note=i%12
- let A4=440
- let semitone=(octave-4)*12+note-9
- return A4*Math.pow(2,semitone/12)
-}
+        <button onclick="resetSong()">Reset</button>
 
-function build(){
+        <button onclick="saveJSON()">Save JSON</button>
 
-const root=document.getElementById("sequencer")
-root.innerHTML=""
+        <input type="file" id="loadFile" style="display:none" onchange="loadJSON(event)">
 
-for(let ch=0;ch<3;ch++){
+        <button onclick="document.getElementById('loadFile').click()">
+            Load JSON
+        </button>
 
-let wrap=document.createElement("div")
-wrap.className="channel"
+        <button onclick="exportMP3()">Export MP3</button>
+    </div>
 
-let title=document.createElement("div")
-title.className="channel-title"
-title.innerText=ch<2?"CH"+(ch+1):"NOISE"
-wrap.appendChild(title)
+    <div id="sequencer"></div>
 
-let header=document.createElement("div")
-header.className="step-header"
+    <script>
 
-let spacer=document.createElement("div")
-spacer.style.width="50px"
-header.appendChild(spacer)
+        let steps = 16
+        const octaves = 3
+        const startOct = 3
 
-for(let s=0;s<steps;s++){
-let n=document.createElement("div")
-n.className="step-num"
-n.innerText=s+1
-header.appendChild(n)
-}
+        const notes = [
+            "C", "C#", "D", "D#", "E",
+            "F", "F#", "G", "G#", "A", "A#", "B"
+        ]
 
-wrap.appendChild(header)
+        const totalNotes = octaves * 12
 
-if(ch<2){
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)()
 
-for(let n=totalNotes-1;n>=0;n--){
+        let data = []
 
-let row=document.createElement("div")
-row.className="row"
-if(n%12===0)row.classList.add("octave-line")
+        let playing = false
+        let loop = false
+        let step = 0
+        let timer
+        let drag = false
 
-let lab=document.createElement("div")
-lab.className="label"
-if(n%12===0)lab.innerText=notes[n%12]+(startOct+Math.floor(n/12))
-row.appendChild(lab)
+        function initData() {
 
-for(let s=0;s<steps;s++){
+            data = [
+                Array(steps).fill(null),
+                Array(steps).fill(null),
+                Array(steps).fill(null),
+                Array(steps).fill(false)
+            ]
 
-let c=document.createElement("div")
-c.className="cell"
+        }
 
-let name=notes[n%12]
+        initData()
 
-if(name.includes("#")){
-c.classList.add("black-bg")
-c.classList.add("black-note")
-}else{
-c.classList.add("white-note")
-}
+        function freq(i) {
 
-if((s+1)%4===0)c.classList.add("step-sep")
+            let octave = startOct + Math.floor(i / 12)
+            let note = i % 12
 
-c.dataset.ch=ch
-c.dataset.step=s
-c.dataset.note=n
+            let A4 = 440
 
-c.onclick=()=>{
+            let semitone = (octave - 4) * 12 + note - 9
 
-if(data[ch][s]===n){
-data[ch][s]=null
-}else{
-data[ch][s]=n
-}
+            return A4 * Math.pow(2, semitone / 12)
 
-draw()
+        }
 
-}
+        function rebuild() {
 
-row.appendChild(c)
+            steps = parseInt(document.getElementById("stepCount").value)
 
-}
+            initData()
 
-wrap.appendChild(row)
+            build()
 
-}
+            draw()
 
-}else{
+        }
 
-let row=document.createElement("div")
-row.className="row"
+        function build() {
 
-let lab=document.createElement("div")
-lab.className="label"
-lab.innerText="NOISE"
-row.appendChild(lab)
+            const root = document.getElementById("sequencer")
 
-for(let s=0;s<steps;s++){
+            root.innerHTML = ""
 
-let c=document.createElement("div")
-c.className="cell noise-note"
+            const chNames = [
+                "Pulse1",
+                "Pulse2",
+                "Triangle",
+                "Noise"
+            ]
 
-if((s+1)%4===0)c.classList.add("step-sep")
+            for (let ch = 0; ch < 4; ch++) {
 
-c.dataset.ch=2
-c.dataset.step=s
+                let chDiv = document.createElement("div")
+                chDiv.className = "channel"
 
-c.onclick=()=>{
-data[2][s]=!data[2][s]
-draw()
-}
+                let title = document.createElement("div")
+                title.className = "channel-title"
+                title.innerText = chNames[ch]
 
-row.appendChild(c)
+                chDiv.appendChild(title)
 
-}
+                let header = document.createElement("div")
+                header.className = "step-header"
 
-wrap.appendChild(row)
+                let spacer = document.createElement("div")
+                spacer.style.width = "55px"
 
-}
+                header.appendChild(spacer)
 
-root.appendChild(wrap)
+                for (let s = 0; s < steps; s++) {
 
-}
+                    let n = document.createElement("div")
 
-}
+                    n.className = "step-num"
+                    n.innerText = s + 1
 
-function draw(){
+                    header.appendChild(n)
 
-document.querySelectorAll(".cell").forEach(c=>{
-c.classList.remove("active","playing")
-})
+                }
 
-for(let ch=0;ch<3;ch++){
+                chDiv.appendChild(header)
 
-for(let s=0;s<steps;s++){
+                if (ch < 3) {
 
-if(ch<2){
+                    for (let n = totalNotes - 1; n >= 0; n--) {
 
-let n=data[ch][s]
+                        let row = document.createElement("div")
+                        row.className = "row"
 
-if(n!==null){
-let sel=document.querySelector(`.cell[data-ch='${ch}'][data-step='${s}'][data-note='${n}']`)
-if(sel)sel.classList.add("active")
-}
+                        if (n % 12 === 0)
+                            row.classList.add("octave-line")
 
-}else{
+                        let label = document.createElement("div")
+                        label.className = "label"
+                        label.style.pointerEvents="none"
 
-if(data[2][s]){
-let sel=document.querySelector(`.cell[data-ch='2'][data-step='${s}']`)
-if(sel)sel.classList.add("active")
-}
+                        if (n % 12 === 0)
+                            label.innerText = notes[n % 12] + (startOct + Math.floor(n / 12))
 
-}
+                        row.appendChild(label)
 
-}
+                        for (let s = 0; s < steps; s++) {
 
-}
+                            let cell = document.createElement("div")
 
-document.querySelectorAll(`.cell[data-step='${currentStep}']`).forEach(c=>{
-c.classList.add("playing")
-})
+                            cell.className = "cell"
 
-}
+                            let name = notes[n % 12]
 
-function playStep(){
+                            if (name.includes("#"))
+                                cell.classList.add("blackbg", "black")
+                            else
+                                cell.classList.add("white")
 
-let bpm=parseInt(document.getElementById("bpm").value)
-let len=(60/bpm)/4
+                            if (ch == 2)
+                                cell.classList.add("tri")
 
-draw()
+                            if ((s + 1) % 4 === 0)
+                                cell.classList.add("step-sep")
 
-for(let ch=0;ch<2;ch++){
+                            cell.dataset.ch = ch
+                            cell.dataset.step = s
+                            cell.dataset.note = n
 
-let n=data[ch][currentStep]
+                            cell.onmousedown = e => { drag = true; toggleCell(ch, s, n) }
+                            cell.onmouseover = e => { if (drag) toggleCell(ch, s, n) }
 
-if(n!==null){
+                            row.appendChild(cell)
 
-let o=audioCtx.createOscillator()
-let g=audioCtx.createGain()
+                        }
 
-o.type="square"
-o.frequency.value=freq(n)
+                        chDiv.appendChild(row)
 
-g.gain.value=0.12
+                    }
 
-o.connect(g)
-g.connect(audioCtx.destination)
+                } else {
 
-o.start()
-o.stop(audioCtx.currentTime+len)
+                    let row = document.createElement("div")
+                    row.className = "row"
 
-}
+                    let label = document.createElement("div")
+                    label.className = "label"
 
-}
+                    label.innerText = "NOISE"
 
-if(data[2][currentStep]){
+                    row.appendChild(label)
 
-let size=audioCtx.sampleRate*len
-let buf=audioCtx.createBuffer(1,size,audioCtx.sampleRate)
-let out=buf.getChannelData(0)
+                    for (let s = 0; s < steps; s++) {
 
-for(let i=0;i<size;i++)out[i]=Math.random()*2-1
+                        let cell = document.createElement("div")
 
-let src=audioCtx.createBufferSource()
-src.buffer=buf
+                        cell.className = "cell noise"
 
-let g=audioCtx.createGain()
-g.gain.value=0.12
+                        if ((s + 1) % 4 === 0)
+                            cell.classList.add("step-sep")
 
-src.connect(g)
-g.connect(audioCtx.destination)
+                        cell.dataset.step = s
 
-src.start()
+                        cell.onmousedown = () => {
+                            drag = true
+                            data[3][s] = !data[3][s]
+                            draw()
+                        }
 
-}
+                        row.appendChild(cell)
 
-currentStep++
+                    }
 
-if(currentStep>=steps){
-if(loop){currentStep=0}else{stop()}
-}
+                    chDiv.appendChild(row)
 
-}
+                }
 
-function togglePlay(){
+                root.appendChild(chDiv)
 
-if(playing){
-stop()
-return
-}
+            }
 
-playing=true
-currentStep=0
+            document.body.onmouseup = () => drag = false
 
-let bpm=parseInt(document.getElementById("bpm").value)
-let ms=(60/bpm)/4*1000
+        }
 
-timer=setInterval(playStep,ms)
+        function toggleCell(ch, s, n) {
 
-}
+            if (data[ch][s] === n)
+                data[ch][s] = null
+            else
+                data[ch][s] = n
 
-function stop(){
-playing=false
-clearInterval(timer)
-currentStep=0
-draw()
-}
+            draw()
 
-function toggleLoop(){
-loop=!loop
-document.getElementById("loopBtn").innerText="Loop "+(loop?"ON":"OFF")
-}
+        }
 
-function resetSong(){
+        function draw() {
 
-data=[
-Array(steps).fill(null),
-Array(steps).fill(null),
-Array(steps).fill(false)
-]
+            document.querySelectorAll(".cell")
+                .forEach(c => c.classList.remove("active", "playhead"))
 
-draw()
+            for (let ch = 0; ch < 4; ch++) {
 
-}
+                for (let s = 0; s < steps; s++) {
 
-function saveJSON(){
+                    if (ch < 3) {
 
-let obj={
-bpm:parseInt(document.getElementById("bpm").value),
-channels:data
-}
+                        let n = data[ch][s]
 
-let blob=new Blob([JSON.stringify(obj,null,2)],{type:"application/json"})
-let url=URL.createObjectURL(blob)
+                        if (n !== null) {
 
-let a=document.createElement("a")
-a.href=url
-a.download="8bit_song.json"
-a.click()
+                            let cell = document.querySelector(
+                                `.cell[data-ch="${ch}"][data-step="${s}"][data-note="${n}"]`
+                            )
 
-}
+                            if (cell)
+                                cell.classList.add("active")
 
-document.getElementById("loadFile").addEventListener("change",e=>{
+                        }
 
-let file=e.target.files[0]
-if(!file)return
+                    } else {
 
-let r=new FileReader()
+                        if (data[3][s]) {
 
-r.onload=ev=>{
+                            let cell = document.querySelector(
+                                `.noise[data-step="${s}"]`
+                            )
 
-let obj=JSON.parse(ev.target.result)
+                            if (cell)
+                                cell.classList.add("active")
 
-if(obj.bpm)document.getElementById("bpm").value=obj.bpm
-if(obj.channels)data=obj.channels
+                        }
 
-draw()
+                    }
 
-}
+                }
 
-r.readAsText(file)
+            }
 
-})
+            document.querySelectorAll(
+                `.cell[data-step="${step}"]`
+            ).forEach(c => c.classList.add("playhead"))
 
-build()
-draw()
+        }
 
-</script>
+        function playStep() {
+
+            let bpm = parseInt(document.getElementById("bpm").value)
+
+            let len = (60 / bpm) / 4
+
+            draw()
+
+            for (let ch = 0; ch < 3; ch++) {
+
+                let n = data[ch][step]
+
+                if (n !== null) {
+
+                    let osc = audioCtx.createOscillator()
+                    let gain = audioCtx.createGain()
+
+                    osc.type = ch == 2 ? "triangle" : "square"
+
+                    osc.frequency.value = freq(n)
+
+                    gain.gain.value = 0.12
+
+                    osc.connect(gain)
+                    gain.connect(audioCtx.destination)
+
+                    osc.start()
+                    osc.stop(audioCtx.currentTime + len)
+
+                }
+
+            }
+
+            if (data[3][step]) {
+
+                let size = audioCtx.sampleRate * len
+
+                let buf = audioCtx.createBuffer(1, size, audioCtx.sampleRate)
+
+                let out = buf.getChannelData(0)
+
+                for (let i = 0; i < size; i++)
+                    out[i] = Math.random() * 2 - 1
+
+                let src = audioCtx.createBufferSource()
+
+                src.buffer = buf
+
+                let g = audioCtx.createGain()
+                g.gain.value = 0.15
+
+                src.connect(g)
+                g.connect(audioCtx.destination)
+
+                src.start()
+
+            }
+
+            step++
+
+            if (step >= steps) {
+
+                if (loop)
+                    step = 0
+                else
+                    stop()
+
+            }
+
+        }
+
+        function togglePlay() {
+
+            if (playing) {
+
+                stop()
+                return
+
+            }
+
+            playing = true
+            step = 0
+
+            let bpm = parseInt(document.getElementById("bpm").value)
+
+            let ms = (60 / bpm) / 4 * 1000
+
+            timer = setInterval(playStep, ms)
+
+        }
+
+        function stop() {
+
+            playing = false
+
+            clearInterval(timer)
+
+            step = 0
+
+            draw()
+
+        }
+
+        function toggleLoop() {
+
+            loop = !loop
+
+            document.getElementById("loopBtn").innerText =
+                "Loop " + (loop ? "ON" : "OFF")
+
+        }
+
+        function resetSong() {
+
+            initData()
+
+            draw()
+
+        }
+
+        function saveJSON() {
+
+            const song = {
+                bpm: parseInt(document.getElementById("bpm").value),
+                steps: steps,
+                channels: data
+            }
+
+            const blob = new Blob(
+                [JSON.stringify(song, null, 2)],
+                { type: "application/json" }
+            )
+
+            const a = document.createElement("a")
+
+            a.href = URL.createObjectURL(blob)
+            a.download = "bgm_song.json"
+            a.click()
+        }
+        function loadJSON(e) {
+
+            const file = e.target.files[0]
+
+            if (!file) return
+
+            const reader = new FileReader()
+
+            reader.onload = function () {
+
+                const song = JSON.parse(reader.result)
+
+                document.getElementById("bpm").value = song.bpm
+
+                steps = song.steps
+                data = song.channels
+
+                document.getElementById("stepCount").value = steps
+
+                build()
+                draw()
+
+            }
+
+            reader.readAsText(file)
+
+        }
+
+        async function exportMP3() {
+
+            const bpm = parseInt(document.getElementById("bpm").value)
+
+            const stepTime = (60 / bpm) / 4
+
+            const length = steps * stepTime
+
+            const sampleRate = 44100
+
+            const offline = new OfflineAudioContext(
+                1,
+                sampleRate * length,
+                sampleRate
+            )
+
+            for (let s = 0; s < steps; s++) {
+
+                const t = s * stepTime
+
+                for (let ch = 0; ch < 3; ch++) {
+
+                    let n = data[ch][s]
+
+                    if (n !== null) {
+
+                        let osc = offline.createOscillator()
+                        let g = offline.createGain()
+
+                        osc.type = ch == 2 ? "triangle" : "square"
+                        osc.frequency.value = freq(n)
+
+                        g.gain.value = 0.15
+
+                        osc.connect(g)
+                        g.connect(offline.destination)
+
+                        osc.start(t)
+                        osc.stop(t + stepTime)
+
+                    }
+
+                }
+
+                if (data[3][s]) {
+
+                    let buffer = offline.createBuffer(
+                        1,
+                        sampleRate * stepTime,
+                        sampleRate
+                    )
+
+                    let out = buffer.getChannelData(0)
+
+                    for (let i = 0; i < out.length; i++)
+                        out[i] = Math.random() * 2 - 1
+
+                    let src = offline.createBufferSource()
+                    src.buffer = buffer
+
+                    let g = offline.createGain()
+                    g.gain.value = 0.15
+
+                    src.connect(g)
+                    g.connect(offline.destination)
+
+                    src.start(t)
+
+                }
+
+            }
+
+            const rendered = await offline.startRendering()
+
+            const samples = rendered.getChannelData(0)
+
+            const mp3encoder = new lamejs.Mp3Encoder(1, 44100, 128)
+
+            let mp3Data = []
+
+            const block = 1152
+
+            for (let i = 0; i < samples.length; i += block) {
+
+                let slice = samples.subarray(i, i + block)
+
+                let buf = new Int16Array(slice.length)
+
+                for (let j = 0; j < slice.length; j++)
+                    buf[j] = slice[j] * 32767
+
+                let mp3buf = mp3encoder.encodeBuffer(buf)
+
+                if (mp3buf.length > 0)
+                    mp3Data.push(mp3buf)
+
+            }
+
+            let end = mp3encoder.flush()
+
+            if (end.length > 0)
+                mp3Data.push(end)
+
+            const blob = new Blob(mp3Data, { type: "audio/mp3" })
+
+            const a = document.createElement("a")
+
+            a.href = URL.createObjectURL(blob)
+            a.download = "bgm.mp3"
+            a.click()
+
+        }
+        build()
+        draw()
+
+
+    </script>
 
 </body>
+
 </html>
