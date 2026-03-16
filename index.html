@@ -376,7 +376,8 @@
 
         function playStep() {
 
-            let bpm = parseInt(bpm.value)
+            const bpmEl = document.getElementById("bpm")
+            let bpm = parseInt(bpmEl.value)
 
             let len = (60 / bpm) / 4
 
@@ -452,7 +453,8 @@
             playing = true
             step = 0
 
-            let bpmv = parseInt(bpm.value)
+            const bpmEl = document.getElementById("bpm")
+            let bpmv = parseInt(bpmEl.value)
 
             timer = setInterval(
                 playStep,
