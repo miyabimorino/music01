@@ -579,14 +579,29 @@
             let bpmv = parseInt(bpm.value)
 
             let stepTime = (60 / bpmv) / 4
+            let lastStepWithSound = -1
 
-            let length = steps * stepTime
+            for (let s = 0; s < steps; s++) {
+
+                const hasTone = data[0][s] != null || data[1][s] != null || data[2][s] != null
+                const hasNoise = !!data[3][s]
+
+                if (hasTone || hasNoise)
+                    lastStepWithSound = s
+
+            }
+
+            const tailPadding = 0.05
+            let length = Math.max(
+                stepTime,
+                ((lastStepWithSound + 1) * stepTime) + tailPadding
+            )
 
             let rate = 44100
 
             let offline = new OfflineAudioContext(
                 1,
-                rate * length,
+                Math.ceil(rate * length),
                 rate
             )
 
@@ -610,6 +625,27 @@
 
                     osc.start(t)
                     osc.stop(t + stepTime)
+
+                }
+
+                if (data[3][s]) {
+
+                    let noiseBuffer = offline.createBuffer(
+                        1,
+                        Math.ceil(rate * stepTime),
+                        rate
+                    )
+
+                    let out = noiseBuffer.getChannelData(0)
+
+                    for (let i = 0; i < out.length; i++)
+                        out[i] = Math.random() * 2 - 1
+
+                    let noise = offline.createBufferSource()
+                    noise.buffer = noiseBuffer
+
+                    noise.connect(offline.destination)
+                    noise.start(t)
 
                 }
 
